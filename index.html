@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elegant Watch Receipt Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0d0d10">
+    <script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+            .then(reg => console.log('Service Worker registered:', reg))
+            .catch(err => console.error('SW registration failed:', err));
+        });
+    }
+    </script>
+
+        
+    <style>
+        /* Custom scrollbar for a sleek look */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151; /* Gray-700 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827; /* Gray-900 */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d0d10; /* Very dark background */
+        }
+        /* Custom styles for the receipt look */
+        .receipt-container {
+            /* Now bright white with a strong shadow to stand out like a document */
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease-in-out;
+        }
+        .receipt-container:hover {
+             box-shadow: 0 35px 60px -15px rgba(0, 0, 0, 0.7);
+        }
+        
+        /* Ensures the white receipt content doesn't get the dark background styles */
+        #receiptContent {
+            color: #1f2937; /* Dark text for high contrast on white */
+        }
+
+        /* * CRITICAL CSS FOR HIGH-QUALITY PRINT/PDF (Updated for padding)
+         * This hides everything except the receipt during print and ensures white background.
+         */
+        @media print {
+            body {
+                background-color: white !important; /* Force white background for print */
+                /* The following are crucial for suppressing unwanted print margins/headers */
+                -webkit-print-color-adjust: exact;
+                color-adjust: exact;
+                /* Set margins to zero to maximize content space */
+                margin: 0 !important; 
+                padding: 0 !important;
+            }
+
+            /* Hide everything that is NOT the receipt wrapper, controls, and modals */
+            body > * {
+                visibility: hidden;
+            }
+
+            /* Make only the receipt wrapper visible and full-width */
+            #receiptWrapper {
+                visibility: visible;
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                /* NOTE: Removed 'padding: 0;' here so the HTML class padding (p-12) is used */
+                box-shadow: none; /* Remove shadow on print */
+                max-width: none; /* Allow it to use full print width */
+                border: none;
+            }
+            
+            /* Hide the controls that aren't needed for the final print */
+            #settingsBtn, #addItemBtn, #downloadBtn {
+                display: none !important;
+            }
+
+            /* Ensure image borders are removed in print */
+            .print\:border-none {
+                border: none !important;
+            }
+
+            /* This browser-specific trick attempts to hide headers/footers entirely */
+            @page {
+                margin: 0;
+                padding: 0;
+                size: A4;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 sm:p-8 flex flex-col items-center justify-center">
+
+    <div id="controls" class="w-full max-w-4xl text-center mb-8">
+        <h1 class="text-4xl sm:text-5xl font-extrabold text-white mb-2">Luxury Receipt Creator</h1>
+        <p class="text-gray-400 text-lg mb-6">Design and download your watch transaction record.</p>
+        
+        <div class="flex flex-wrap justify-center gap-4">
+            <button onclick="showModal('settingsModal')" id="settingsBtn" 
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition duration-200 transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 002.583 1.342 1.532 1.532 0 00-2.583 1.342c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 002.583 1.342 1.532 1.532 0 00-2.583 1.342z" clip-rule="evenodd" />
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-10a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V8z" clip-rule="evenodd" />
+                </svg>
+                Company Settings
+            </button>
+            <button onclick="showModal('itemModal')" id="addItemBtn" 
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition duration-200 transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" />
+                </svg>
+                Add Watch
+            </button>
+            <button onclick="downloadReceipt()" id="downloadBtn" 
+                class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition duration-200 transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M13 14H7V6h6v8zm0-10H7v2h6V4zM16 10c0 3.31-2.69 6-6 6s-6-2.69-6-6h2c0 2.21 1.79 4 4 4s4-1.79 4-4H16z"/>
+                </svg>
+                Download Receipt (PDF)
+            </button>
+        </div>
+    </div>
+
+    <div id="receiptWrapper" class="w-full max-w-sm sm:max-w-lg lg:max-w-xl p-12 bg-white rounded-2xl receipt-container border border-gray-200">
+        
+        <div id="receiptContent" class="text-gray-800">
+            
+            </div>
+    </div>
+    
+    <div id="settingsModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md m-4 transform transition-all scale-100 opacity-100">
+            <h2 class="text-3xl font-bold text-white mb-6 border-b border-indigo-700 pb-2">Company Details</h2>
+            
+            <form onsubmit="updateSettings(event)">
+                <div class="mb-4">
+                    <label for="companyName" class="block text-gray-300 font-medium mb-1">Company Name</label>
+                    <input type="text" id="companyName" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., Luxury Timepieces Inc." required>
+                </div>
+                <div class="mb-4">
+                    <label for="logoFile" class="block text-gray-300 font-medium mb-1">Company Logo (Image File)</label>
+                    <input type="file" id="logoFile" accept="image/*" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-indigo-500 focus:border-indigo-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                    <p class="text-xs text-gray-400 mt-1">Leave blank to keep the existing logo or use text.</p>
+                </div>
+                <div class="mb-6">
+                    <label for="transactionMethod" class="block text-gray-300 font-medium mb-1">Payment Method</label>
+                    <select id="transactionMethod" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-indigo-500 focus:border-indigo-500" required>
+                        <option value="Wire Transfer">Wire Transfer</option>
+                        <option value="Credit Card">Credit Card</option>
+                        <option value="Cryptocurrency">Cryptocurrency</option>
+                        <option value="Cash">Cash</option>
+                    </select>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="hideModal('settingsModal')" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Cancel</button>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="itemModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md m-4 transform transition-all scale-100 opacity-100">
+            <h2 class="text-3xl font-bold text-white mb-6 border-b border-green-700 pb-2">Add New Watch</h2>
+            
+            <form onsubmit="addItem(event)">
+                <input type="hidden" id="itemId" value="">
+                <div class="mb-4">
+                    <label for="watchName" class="block text-gray-300 font-medium mb-1">Watch Name / Model</label>
+                    <input type="text" id="watchName" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-green-500 focus:border-green-500" placeholder="e.g., Rolex Daytona 116500LN" required>
+                </div>
+                <div class="mb-4">
+                    <label for="watchImage" class="block text-gray-300 font-medium mb-1">Product Image (Optional)</label>
+                    <input type="file" id="watchImage" accept="image/*" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-green-500 focus:border-green-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 cursor-pointer">
+                    <p class="text-xs text-gray-400 mt-1" id="currentWatchImage"></p>
+                </div>
+                <div class="mb-6">
+                    <label for="watchPrice" class="block text-gray-300 font-medium mb-1">Price (USD)</label>
+                    <input type="number" id="watchPrice" step="0.01" min="0.01" class="w-full bg-gray-700 text-white border border-gray-600 rounded-lg p-3 focus:ring-green-500 focus:border-green-500" placeholder="e.g., 25000.00" required>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="hideModal('itemModal')" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Cancel</button>
+                    <button type="submit" id="itemSubmitBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Add Watch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+<script>
+    // --- Global State ---
+    let receiptData = {
+        company: {
+            name: '', 
+            logoUrl: '', // Will now store Base64 data URL
+            transactionMethod: 'Wire Transfer',
+            receiptId: Date.now().toString().slice(-6),
+            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+        },
+        items: [], 
+        nextItemId: 1 
+    };
+
+    // --- Utility Functions ---
+
+    /** Shows the specified modal by adjusting CSS classes. */
+    function showModal(id) {
+        document.getElementById(id).classList.remove('hidden');
+        document.getElementById(id).classList.add('flex');
+    }
+
+    /** Hides the specified modal by adjusting CSS classes. */
+    function hideModal(id) {
+        document.getElementById(id).classList.add('hidden');
+        document.getElementById(id).classList.remove('flex');
+    }
+
+    /** Formats a number as USD currency. */
+    function formatCurrency(amount) {
+        return new Intl.NumberFormat('en-US', { 
+            style: 'currency', 
+            currency: 'USD',
+            minimumFractionDigits: 2 
+        }).format(amount);
+    }
+    
+    /** Calculates the total of all items. */
+    function calculateTotal() {
+        return receiptData.items.reduce((sum, item) => sum + item.price, 0);
+    }
+    
+    /** Converts a File object to a Base64 data URL using Promises. */
+    function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = error => reject(error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // --- Core Rendering Function ---
+    
+    /** Generates the HTML for the receipt based on current data. */
+    function renderReceipt() {
+        const contentDiv = document.getElementById('receiptContent');
+        
+        // Show placeholder message if NO company name and NO items exist.
+        if (receiptData.items.length === 0 && !receiptData.company.name) {
+             const placeholderHtml = `
+                <div class="text-center py-10 text-gray-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                    <p>Start by setting your Company Name and adding watches!</p>
+                </div>
+            `;
+            contentDiv.innerHTML = placeholderHtml;
+            return;
+        }
+
+        const total = calculateTotal();
+        const taxRate = 0.00; 
+        const tax = total * taxRate;
+        const finalTotal = total + tax;
+        
+        // Dynamic logo/name display logic
+        let logoHtml;
+        if (receiptData.company.logoUrl) {
+            // Logo URL is now Base64 string
+            logoHtml = `<img src="${receiptData.company.logoUrl}" alt="Company Logo" class="h-12 object-contain mx-auto" style="max-width: 180px; height: 48px;"/>`;
+        } else if (receiptData.company.name) {
+             // Fallback to initial if no logo is provided
+             logoHtml = `<div class="text-5xl font-extrabold text-indigo-700">${receiptData.company.name.charAt(0)}</div>`;
+        } else {
+             logoHtml = `<div class="text-5xl font-extrabold text-gray-500">--</div>`;
+        }
+            
+        // Enhanced Header Styling for Elegance
+        const headerHtml = `
+            <div class="text-center pb-8 mb-6 border-b-2 border-indigo-100">
+                <div class="mb-3">${logoHtml}</div>
+                <h2 class="text-3xl font-extrabold text-gray-900">${receiptData.company.name.toUpperCase() || 'LUXURY WATCHES RETAIL'}</h2>
+                <p class="text-gray-500 text-sm">Thank you for your valued business.</p>
+            </div>
+            <div class="flex justify-between text-sm text-gray-600 mb-6 px-1">
+                <div>
+                    <p class="font-semibold">RECEIPT ID: <span class="text-gray-900 font-bold">#${receiptData.company.receiptId}</span></p>
+                    <p>DATE: <span class="text-gray-700">${receiptData.company.date}</span></p>
+                </div>
+                <div class="text-right">
+                    <p>PAYMENT METHOD: <span class="text-gray-700">${receiptData.company.transactionMethod.toUpperCase()}</span></p>
+                </div>
+            </div>
+        `;
+
+        // Item List Styling - Updated to include product image
+        const itemsHtml = receiptData.items.map(item => `
+            <div class="flex justify-between items-center py-4 border-b border-gray-200 hover:bg-indigo-50 transition duration-150 px-1 cursor-pointer" 
+                 ondblclick="editItem(${item.id})">
+                
+                <div class="flex-1 flex items-center">
+                    ${item.imageUrl ? `<img src="${item.imageUrl}" alt="${item.name}" class="h-12 w-12 object-cover rounded-md mr-4 border border-gray-200 print:border-none" style="min-width: 48px;"/>` : ''}
+                    <div>
+                        <p class="text-lg font-medium text-gray-900">${item.name}</p>
+                    </div>
+                </div>
+                <p class="text-lg font-semibold text-gray-800">${formatCurrency(item.price)}</p>
+            </div>
+        `).join('');
+
+        // Show a prompt if company name is set but no items
+        const noItemsPrompt = receiptData.items.length === 0 ? `
+            <div class="text-center py-10 text-gray-500 border-b border-gray-200">
+                <p class="font-medium">No items added yet. Click 'Add Watch' to list products.</p>
+            </div>
+        ` : '';
+
+        // Totals and Footer Styling
+        const totalsHtml = `
+            ${noItemsPrompt}
+            <div class="mt-8 pt-6 space-y-3 text-right">
+                <div class="flex justify-between text-md text-gray-600">
+                    <span class="font-medium">SUBTOTAL:</span>
+                    <span>${formatCurrency(total)}</span>
+                </div>
+                <div class="flex justify-between text-md text-gray-600">
+                    <span class="font-medium">TAX (0%):</span>
+                    <span>${formatCurrency(tax)}</span>
+                </div>
+                <div class="flex justify-between text-3xl font-extrabold text-indigo-700 pt-5 border-t border-indigo-200">
+                    <span class="tracking-wider">TOTAL AMOUNT:</span>
+                    <span class="font-black">${formatCurrency(finalTotal)}</span>
+                </div>
+            </div>
+            <div class="text-center mt-10 pt-4 border-t border-gray-300">
+                <p class="text-gray-600 text-sm italic">This document confirms the transaction of luxury timepieces.</p>
+                <p class="text-gray-500 text-xs mt-1">Receipt is automatically generated and digitally verifiable.</p>
+            </div>
+        `;
+
+        contentDiv.innerHTML = headerHtml + itemsHtml + totalsHtml;
+    }
+
+
+    // --- CRUD Functions ---
+
+    /** Handles the submission of the Company Settings form (now async). */
+    async function updateSettings(e) {
+        e.preventDefault();
+        
+        const name = document.getElementById('companyName').value;
+        const fileInput = document.getElementById('logoFile');
+        const method = document.getElementById('transactionMethod').value;
+        
+        let logoDataUrl = receiptData.company.logoUrl; // Preserve existing logo if no new file is selected
+
+        if (fileInput.files.length > 0) {
+            try {
+                // Convert the selected file to a Base64 string
+                logoDataUrl = await fileToBase64(fileInput.files[0]);
+                // Clear the file input after reading
+                fileInput.value = '';
+            } catch (error) {
+                console.error("Error reading logo file:", error);
+                console.log('Could not read the logo file. Please try again or use a different file.');
+                return;
+            }
+        }
+        
+        receiptData.company.name = name;
+        receiptData.company.logoUrl = logoDataUrl;
+        receiptData.company.transactionMethod = method;
+
+        renderReceipt();
+        hideModal('settingsModal');
+    }
+
+    /** Handles the submission of the Add/Edit Watch form (now async). */
+    async function addItem(e) {
+        e.preventDefault();
+        
+        const id = document.getElementById('itemId').value;
+        const name = document.getElementById('watchName').value;
+        const price = parseFloat(document.getElementById('watchPrice').value);
+        
+        const imageInput = document.getElementById('watchImage');
+        let imageUrl = '';
+        
+        // 1. Handle image upload/retention
+        if (imageInput.files.length > 0) {
+            // New image uploaded
+            try {
+                 imageUrl = await fileToBase64(imageInput.files[0]);
+            } catch (error) {
+                console.error("Error reading product image:", error);
+                alert('Could not read the product image file. Please try again.');
+                return;
+            }
+        } else if (id) {
+            // Editing existing item: retain old image URL
+            const existingItem = receiptData.items.find(i => i.id === parseInt(id));
+            if (existingItem) {
+                imageUrl = existingItem.imageUrl;
+            }
+        }
+
+        if (id) {
+            // Edit existing item
+            const itemIndex = receiptData.items.findIndex(i => i.id === parseInt(id));
+            if (itemIndex > -1) {
+                receiptData.items[itemIndex].name = name;
+                receiptData.items[itemIndex].price = price;
+                receiptData.items[itemIndex].imageUrl = imageUrl;
+            }
+        } else {
+            // Add new item
+            receiptData.items.push({
+                id: receiptData.nextItemId++,
+                name: name,
+                price: price,
+                imageUrl: imageUrl
+            });
+        }
+        
+        // Reset form and hide modal
+        document.getElementById('itemId').value = '';
+        document.getElementById('watchName').value = '';
+        document.getElementById('watchPrice').value = '';
+        document.getElementById('watchImage').value = ''; // Clear file input
+        document.getElementById('itemSubmitBtn').innerText = 'Add Watch';
+        
+        // Remove temporary delete button and image status
+        const submitContainer = document.querySelector('#itemModal form .flex.justify-end');
+        const deleteBtn = submitContainer.querySelector('.bg-red-600');
+        if (deleteBtn) deleteBtn.remove();
+        document.getElementById('currentWatchImage').innerText = ''; // Clear image status
+        
+        hideModal('itemModal');
+        renderReceipt();
+    }
+    
+    /** Populates the Item Modal for editing an existing watch. */
+    function editItem(id) {
+        const item = receiptData.items.find(i => i.id === id);
+        if (!item) return;
+
+        // Set form values for editing
+        document.getElementById('itemId').value = item.id;
+        document.getElementById('watchName').value = item.name;
+        document.getElementById('watchPrice').value = item.price;
+        document.getElementById('itemSubmitBtn').innerText = 'Update Watch';
+        
+        // Display status of current image
+        const currentImageStatus = document.getElementById('currentWatchImage');
+        if (item.imageUrl) {
+            currentImageStatus.innerText = 'Image: Present (Select new file to change)';
+            currentImageStatus.classList.add('text-green-400');
+            currentImageStatus.classList.remove('text-gray-400');
+        } else {
+            currentImageStatus.innerText = 'Image: None';
+            currentImageStatus.classList.add('text-gray-400');
+            currentImageStatus.classList.remove('text-green-400');
+        }
+        document.getElementById('watchImage').value = ''; // Clear file input for new upload
+
+        // Add a temporary delete button for quick removal
+        const deleteBtnHtml = `<button type="button" onclick="deleteItem(${id}); hideModal('itemModal');" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Delete</button>`;
+        const submitContainer = document.querySelector('#itemModal form .flex.justify-end');
+        
+        // Check if delete button already exists, if not, add it
+        if (!submitContainer.querySelector('.bg-red-600')) {
+            submitContainer.insertAdjacentHTML('afterbegin', deleteBtnHtml);
+        }
+
+        showModal('itemModal');
+    }
+
+    /** Removes an item from the receipt. */
+    function deleteItem(id) {
+        receiptData.items = receiptData.items.filter(item => item.id !== id);
+        renderReceipt();
+    }
+
+    // --- PDF Download Function ---
+
+    /** Triggers the browser's native print dialog to generate a high-quality PDF 
+     * with automatic, word-safe page breaks, and removes the page title/URL header.
+     */
+    function downloadReceipt() {
+        // 1. Add a loading message to the button
+        const downloadBtn = document.getElementById('downloadBtn');
+        const originalText = downloadBtn.innerHTML;
+        downloadBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Preparing Print...';
+        downloadBtn.disabled = true;
+
+        const titleElement = document.querySelector('title');
+        const originalTitle = titleElement ? titleElement.innerText : '';
+
+        // 2. Temporarily change the page title to minimize headers/footers in the PDF
+        if (titleElement) {
+            titleElement.innerText = '';
+        }
+
+        // 3. Use the native print function. The @media print CSS rules handle isolation.
+        window.print();
+        
+        // 4. Restore original page title
+        if (titleElement) {
+            titleElement.innerText = originalTitle;
+        }
+
+        // 5. Restore original button state immediately (the print dialog is non-blocking)
+        downloadBtn.innerHTML = originalText;
+        downloadBtn.disabled = false;
+        
+        // Note: The user must select "Save as PDF" in their browser's print dialog.
+    }
+
+    // --- Initialization ---
+
+    /** Sets up the initial UI state. */
+    document.addEventListener('DOMContentLoaded', () => {
+        // Render the initial receipt view
+        renderReceipt();
+    });
+
+</script>
+
+</body>
+</html>
